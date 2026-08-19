@@ -29,12 +29,14 @@ type Message struct {
 	Content Blocks `json:"content"`
 }
 
-// Tool declares a client tool the model may call.
+// Tool declares a client tool the model may call. A tool with DeferLoading set
+// stays out of the model's context until a tool_reference names it.
 type Tool struct {
-	Type        string          `json:"type,omitempty"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	Type         string          `json:"type,omitempty"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+	DeferLoading bool            `json:"defer_loading,omitempty"`
 }
 
 // Tool choice discriminators.

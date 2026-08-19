@@ -3,6 +3,7 @@ package translate
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/1outres/sitka/internal/anthropic"
@@ -16,6 +17,17 @@ const (
 	toolTypeFunction = "function"
 	emptyToolInput   = "{}"
 )
+
+// toolSearchPrefix starts the type of every tool search server tool, such as
+// tool_search_tool_regex_20251119 and tool_search_tool_bm25_20251119.
+const toolSearchPrefix = "tool_search_tool_"
+
+// attributionPrefix starts the block Claude Code puts first in the system
+// prompt. The Anthropic API drops that block by position, so an upstream
+// without the same rule would read it as part of the prompt. Dropping it here
+// instead of at the client keeps it on the requests that go to Anthropic,
+// where auto mode needs it to recognize its own classifier calls.
+const attributionPrefix = "x-anthropic-billing-header: "
 
 // Tool choice values of the OpenAI API.
 const (
@@ -52,14 +64,15 @@ func Request(req *anthropic.Request, upstreamModel string) (*openai.Request, err
 		out.Messages = append(out.Messages, *system)
 	}
 
+	catalog := newToolCatalog(req.Tools)
 	for _, msg := range req.Messages {
-		out.Messages, err = appendMessage(out.Messages, msg)
+		out.Messages, err = appendMessage(out.Messages, msg, catalog)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if out.Tools, err = convertTools(req.Tools); err != nil {
+	if out.Tools, err = convertTools(req.Tools, loadedTools(req.Messages)); err != nil {
 		return nil, err
 	}
 
@@ -79,6 +92,7 @@ func Request(req *anthropic.Request, upstreamModel string) (*openai.Request, err
 }
 
 func systemMessage(blocks anthropic.Blocks) (*openai.Message, error) {
+	blocks = withoutAttribution(blocks)
 	for _, block := range blocks {
 		if block.Type != anthropic.BlockText {
 			return nil, &UnsupportedError{Feature: block.Type}
@@ -91,7 +105,21 @@ func systemMessage(blocks anthropic.Blocks) (*openai.Message, error) {
 	return &openai.Message{Role: openai.RoleSystem, Content: openai.TextContent(text)}, nil
 }
 
-func appendMessage(dst []openai.Message, msg anthropic.Message) ([]openai.Message, error) {
+// withoutAttribution drops a leading attribution block. Only the first block
+// can be one, and a block that starts with the marker counts as attribution in
+// whole, which is how the Anthropic API reads it too.
+func withoutAttribution(blocks anthropic.Blocks) anthropic.Blocks {
+	if len(blocks) == 0 {
+		return blocks
+	}
+	first := blocks[0]
+	if first.Type != anthropic.BlockText || !strings.HasPrefix(first.Text, attributionPrefix) {
+		return blocks
+	}
+	return blocks[1:]
+}
+
+func appendMessage(dst []openai.Message, msg anthropic.Message, catalog toolCatalog) ([]openai.Message, error) {
 	var (
 		parts        []openai.ContentPart
 		toolCalls    []openai.ToolCall
@@ -123,7 +151,7 @@ func appendMessage(dst []openai.Message, msg anthropic.Message) ([]openai.Messag
 				},
 			})
 		case anthropic.BlockToolResult:
-			text, err := toolResultText(block.Content)
+			text, err := toolResultText(block.Content, catalog)
 			if err != nil {
 				return nil, err
 			}
@@ -169,18 +197,82 @@ func messageContent(parts []openai.ContentPart, hasImage bool) openai.Content {
 	return openai.TextContent(text.String())
 }
 
+// toolCatalog indexes the tools of one request by name, so that a tool_reference
+// can be resolved to the definition it points at.
+type toolCatalog map[string]anthropic.Tool
+
+func newToolCatalog(tools []anthropic.Tool) toolCatalog {
+	catalog := make(toolCatalog, len(tools))
+	for _, tool := range tools {
+		if tool.Name == "" {
+			continue
+		}
+		catalog[tool.Name] = tool
+	}
+	return catalog
+}
+
 // toolResultText flattens a tool result. An OpenAI tool message can only carry
 // text, so anything else in the result has no equivalent and must not be
 // dropped without telling the caller.
-func toolResultText(blocks anthropic.Blocks) (string, error) {
+func toolResultText(blocks anthropic.Blocks, catalog toolCatalog) (string, error) {
 	var text strings.Builder
+	var referenced []anthropic.Tool
 	for _, block := range blocks {
-		if block.Type != anthropic.BlockText {
+		switch block.Type {
+		case anthropic.BlockText:
+			text.WriteString(block.Text)
+		case anthropic.BlockToolReference:
+			tool, ok := catalog[block.ToolName]
+			if !ok {
+				return "", fmt.Errorf("translate: tool_reference names %q, which this request does not define", block.ToolName)
+			}
+			referenced = append(referenced, tool)
+		default:
 			return "", &UnsupportedError{Feature: "tool_result content: " + block.Type}
 		}
-		text.WriteString(block.Text)
 	}
-	return text.String(), nil
+
+	if len(referenced) == 0 {
+		return text.String(), nil
+	}
+	block, err := functionsBlock(referenced)
+	if err != nil {
+		return "", err
+	}
+	return text.String() + block, nil
+}
+
+// functionsBlock writes tool definitions the way the tool search tool of the
+// client tells the model to expect them. The Anthropic API turns a
+// tool_reference into a usable definition itself; an OpenAI-compatible API has
+// no such step, so the gateway spells the definition out instead.
+func functionsBlock(tools []anthropic.Tool) (string, error) {
+	var out strings.Builder
+	out.WriteString("<functions>\n")
+	for _, tool := range tools {
+		line, err := json.Marshal(functionDoc{
+			Description: tool.Description,
+			Name:        tool.Name,
+			Parameters:  tool.InputSchema,
+		})
+		if err != nil {
+			return "", fmt.Errorf("translate: write the definition of tool %q: %w", tool.Name, err)
+		}
+		out.WriteString("<function>")
+		out.Write(line)
+		out.WriteString("</function>\n")
+	}
+	out.WriteString("</functions>")
+	return out.String(), nil
+}
+
+// functionDoc is one entry of a functions block. The field order is the one the
+// tool search tool documents, so it must stay as written.
+type functionDoc struct {
+	Description string          `json:"description"`
+	Name        string          `json:"name"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 func imageURL(src *anthropic.Source) (string, error) {
@@ -204,14 +296,42 @@ func toolArguments(input json.RawMessage) string {
 	return string(input)
 }
 
-func convertTools(tools []anthropic.Tool) ([]openai.Tool, error) {
+// loadedTools collects the tools a tool_reference has already named. The
+// Anthropic API keeps a deferred tool out of the model's context until that
+// happens, so the gateway holds it back for the same turns.
+func loadedTools(messages []anthropic.Message) map[string]struct{} {
+	loaded := make(map[string]struct{})
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type != anthropic.BlockToolResult {
+				continue
+			}
+			for _, inner := range block.Content {
+				if inner.Type == anthropic.BlockToolReference && inner.ToolName != "" {
+					loaded[inner.ToolName] = struct{}{}
+				}
+			}
+		}
+	}
+	return loaded
+}
+
+func convertTools(tools []anthropic.Tool, loaded map[string]struct{}) ([]openai.Tool, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
 	out := make([]openai.Tool, 0, len(tools))
 	for _, tool := range tools {
+		// A tool search tool has no OpenAI equivalent, and dropping it costs
+		// nothing: a search only reveals tools this request already carries.
+		if strings.HasPrefix(tool.Type, toolSearchPrefix) {
+			continue
+		}
 		if tool.Type != "" {
 			return nil, &UnsupportedError{Feature: "server tool: " + tool.Type}
+		}
+		if _, discovered := loaded[tool.Name]; tool.DeferLoading && !discovered {
+			continue
 		}
 		out = append(out, openai.Tool{
 			Type: toolTypeFunction,

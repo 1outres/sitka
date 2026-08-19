@@ -14,6 +14,7 @@ const (
 	BlockDocument         = "document"
 	BlockToolUse          = "tool_use"
 	BlockToolResult       = "tool_result"
+	BlockToolReference    = "tool_reference"
 	BlockThinking         = "thinking"
 	BlockRedactedThinking = "redacted_thinking"
 )
@@ -32,6 +33,7 @@ type ContentBlock struct {
 	Input json.RawMessage `json:"input,omitempty"`
 
 	ToolUseID string `json:"tool_use_id,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
 	Content   Blocks `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
 

@@ -48,6 +48,35 @@ func TestRequest(t *testing.T) {
 			want: `{"model":"gpt-5.2","messages":[{"role":"system","content":"be terse and kind"},{"role":"user","content":"hi"}]}`,
 		},
 		{
+			name: "attribution block is dropped from the system prompt",
+			req: &anthropic.Request{
+				System: anthropic.Blocks{
+					{Type: anthropic.BlockText, Text: "x-anthropic-billing-header: cc_version=2.1.226.abc123; cc_entrypoint=cli;"},
+					{Type: anthropic.BlockText, Text: "be terse"},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[{"role":"system","content":"be terse"}]}`,
+		},
+		{
+			name: "an attribution block on its own emits no system message",
+			req: &anthropic.Request{
+				System: anthropic.Blocks{
+					{Type: anthropic.BlockText, Text: "x-anthropic-billing-header: cc_version=2.1.226.abc123; cc_entrypoint=cli;"},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[]}`,
+		},
+		{
+			name: "only the first block counts as attribution",
+			req: &anthropic.Request{
+				System: anthropic.Blocks{
+					{Type: anthropic.BlockText, Text: "be terse"},
+					{Type: anthropic.BlockText, Text: "x-anthropic-billing-header: cc_version=2.1.226.abc123; cc_entrypoint=cli;"},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[{"role":"system","content":"be tersex-anthropic-billing-header: cc_version=2.1.226.abc123; cc_entrypoint=cli;"}]}`,
+		},
+		{
 			name: "empty system emits no system message",
 			req: &anthropic.Request{
 				System: anthropic.Blocks{},
@@ -175,6 +204,95 @@ func TestRequest(t *testing.T) {
 				ToolChoice: &anthropic.ToolChoice{Type: anthropic.ToolChoiceAuto},
 			},
 			want: `{"model":"gpt-5.2","messages":[],"tools":[{"type":"function","function":{"name":"read","description":"read a file","parameters":{"type":"object"}}}],"tool_choice":"auto"}`,
+		},
+		{
+			name: "tool search tool is dropped",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Type: "tool_search_tool_regex_20251119", Name: "tool_search_tool_regex"},
+					{Name: "read", Description: "read a file", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[],"tools":[{"type":"function","function":{"name":"read","description":"read a file","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name: "bm25 tool search variant is dropped too",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Type: "tool_search_tool_bm25_20251119", Name: "tool_search_tool_bm25"},
+					{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[],"tools":[{"type":"function","function":{"name":"read","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name: "a tool search tool on its own leaves no tools",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Type: "tool_search_tool_regex_20251119", Name: "tool_search_tool_regex"},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[]}`,
+		},
+		{
+			name: "tool_reference expands into the definition it names",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Name: "probe", Description: "a probe", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+				Messages: []anthropic.Message{
+					{Role: anthropic.RoleUser, Content: anthropic.Blocks{
+						{Type: anthropic.BlockToolResult, ToolUseID: "call_1", Content: anthropic.Blocks{
+							{Type: anthropic.BlockToolReference, ToolName: "probe"},
+						}},
+					}},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[{"role":"tool","content":"<functions>\n<function>{\"description\":\"a probe\",\"name\":\"probe\",\"parameters\":{\"type\":\"object\"}}</function>\n</functions>","tool_call_id":"call_1"}],"tools":[{"type":"function","function":{"name":"probe","description":"a probe","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name: "tool_reference keeps the text that comes with it",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Name: "probe", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+				Messages: []anthropic.Message{
+					{Role: anthropic.RoleUser, Content: anthropic.Blocks{
+						{Type: anthropic.BlockToolResult, ToolUseID: "call_1", Content: anthropic.Blocks{
+							{Type: anthropic.BlockText, Text: "found one:\n"},
+							{Type: anthropic.BlockToolReference, ToolName: "probe"},
+						}},
+					}},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[{"role":"tool","content":"found one:\n<functions>\n<function>{\"description\":\"\",\"name\":\"probe\",\"parameters\":{\"type\":\"object\"}}</function>\n</functions>","tool_call_id":"call_1"}],"tools":[{"type":"function","function":{"name":"probe","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name: "a deferred tool stays hidden until it is discovered",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)},
+					{Name: "DeferredToolPlaceholder", DeferLoading: true, InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[],"tools":[{"type":"function","function":{"name":"read","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name: "a deferred tool appears once a tool_reference names it",
+			req: &anthropic.Request{
+				Tools: []anthropic.Tool{
+					{Name: "probe", DeferLoading: true, InputSchema: json.RawMessage(`{"type":"object"}`)},
+					{Name: "DeferredToolPlaceholder", DeferLoading: true, InputSchema: json.RawMessage(`{"type":"object"}`)},
+				},
+				Messages: []anthropic.Message{
+					{Role: anthropic.RoleUser, Content: anthropic.Blocks{
+						{Type: anthropic.BlockToolResult, ToolUseID: "call_1", Content: anthropic.Blocks{
+							{Type: anthropic.BlockToolReference, ToolName: "probe"},
+						}},
+					}},
+				},
+			},
+			want: `{"model":"gpt-5.2","messages":[{"role":"tool","content":"<functions>\n<function>{\"description\":\"\",\"name\":\"probe\",\"parameters\":{\"type\":\"object\"}}</function>\n</functions>","tool_call_id":"call_1"}],"tools":[{"type":"function","function":{"name":"probe","parameters":{"type":"object"}}}]}`,
 		},
 		{
 			name: "any tool choice",
@@ -351,5 +469,30 @@ func TestRequestRejectsNonTextToolResult(t *testing.T) {
 	}
 	if !strings.Contains(unsupported.Feature, anthropic.BlockImage) {
 		t.Errorf("Feature = %q, want it to name the image block", unsupported.Feature)
+	}
+}
+
+func TestRequestRejectsUnknownToolReference(t *testing.T) {
+	req := &anthropic.Request{
+		Model: "claude-sonnet-5",
+		Tools: []anthropic.Tool{{Name: "probe", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		Messages: []anthropic.Message{{
+			Role: anthropic.RoleUser,
+			Content: anthropic.Blocks{{
+				Type:      anthropic.BlockToolResult,
+				ToolUseID: "toolu_1",
+				Content: anthropic.Blocks{
+					{Type: anthropic.BlockToolReference, ToolName: "missing"},
+				},
+			}},
+		}},
+	}
+
+	_, err := Request(req, "gpt-5.2")
+	if err == nil {
+		t.Fatal("Request error = nil, want an error naming the missing tool")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("error = %q, want it to name the tool the reference points at", err)
 	}
 }
