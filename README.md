@@ -35,6 +35,26 @@ providers:
 
 `id`がモデルIDのプレフィックスになる。使えるのは`[a-z0-9]+`だけで、`claude`と`anthropic`は予約語。`base_url`を差し替えればOpenRouterやGroq、Ollamaなど、Chat Completions互換のAPIはそのまま使える。
 
+`/effort`の切り替えは、設定を書かないかぎり外部モデルには届かない。効かせたいなら、レベルごとに送るボディを書く。
+
+```yaml
+providers:
+  - id: openai
+    base_url: https://api.openai.com/v1
+    api_key: sk-...
+    effort:
+      low:    {reasoning_effort: low}
+      medium: {reasoning_effort: medium}
+      high:   {reasoning_effort: high}
+    models:
+      gpt-5.2:
+        effort:
+          xhigh: {reasoning_effort: high}
+          max:   {reasoning_effort: high}
+```
+
+上流ごとにフィールドの形が違うので、送りたいものをそのまま書く。OpenRouterの`reasoning: {effort: high}`のようなネストも通る。`models`配下の指定は、プロバイダ直下の`effort`を丸ごと置き換える。書かなかったレベルと、`models`に無いモデルには何も送らない。`xhigh`や`max`を持たないモデルは、そのレベルを下のレベルへ明示的に対応付ける。
+
 ```bash
 sitka serve
 ```

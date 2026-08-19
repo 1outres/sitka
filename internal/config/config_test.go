@@ -214,3 +214,36 @@ providers:
 		t.Fatal("Load() error = nil, want an error because api_key is only read from the file")
 	}
 }
+
+func TestLoadEffortOverrides(t *testing.T) {
+	path := writeConfig(t, `
+providers:
+  - id: openai
+    base_url: https://api.openai.com/v1
+    api_key: sk-test
+    effort:
+      high: {reasoning_effort: high}
+    models:
+      gpt-5.2:
+        effort:
+          xhigh: {reasoning_effort: high}
+          max: {reasoning: {effort: high}}
+`)
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	provider := got.Providers[0]
+	if want := `{"reasoning_effort":"high"}`; string(provider.Effort["high"]) != want {
+		t.Errorf("provider effort high = %s, want %s", provider.Effort["high"], want)
+	}
+	model := provider.Models["gpt-5.2"]
+	if want := `{"reasoning_effort":"high"}`; string(model.Effort["xhigh"]) != want {
+		t.Errorf("model effort xhigh = %s, want %s", model.Effort["xhigh"], want)
+	}
+	if want := `{"reasoning":{"effort":"high"}}`; string(model.Effort["max"]) != want {
+		t.Errorf("model effort max = %s, want %s", model.Effort["max"], want)
+	}
+}

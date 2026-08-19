@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,50 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name:   "no providers is valid",
 			mutate: func(c *Config) { c.Providers = nil },
+		},
+		{
+			name: "valid effort overrides",
+			mutate: func(c *Config) {
+				c.Providers[0].Effort = Effort{"high": json.RawMessage(`{"reasoning_effort":"high"}`)}
+				c.Providers[0].Models = map[string]Model{
+					"gpt-5.2": {Effort: Effort{"max": json.RawMessage(`{"reasoning_effort":"high"}`)}},
+				}
+			},
+		},
+		{
+			name: "unknown effort level",
+			mutate: func(c *Config) {
+				c.Providers[0].Effort = Effort{"insane": json.RawMessage(`{"reasoning_effort":"high"}`)}
+			},
+			wantErr: []string{"providers[0].effort", "insane"},
+		},
+		{
+			name: "effort level that is not a mapping",
+			mutate: func(c *Config) {
+				c.Providers[0].Effort = Effort{"high": json.RawMessage(`"high"`)}
+			},
+			wantErr: []string{"providers[0].effort.high", "mapping"},
+		},
+		{
+			name: "effort level set to null",
+			mutate: func(c *Config) {
+				c.Providers[0].Effort = Effort{"high": json.RawMessage(`null`)}
+			},
+			wantErr: []string{"providers[0].effort.high", "mapping"},
+		},
+		{
+			name: "unknown effort level on a model",
+			mutate: func(c *Config) {
+				c.Providers[0].Models = map[string]Model{
+					"gpt-5.2": {Effort: Effort{"ultra": json.RawMessage(`{}`)}},
+				}
+			},
+			wantErr: []string{`providers[0].models["gpt-5.2"].effort`, "ultra"},
+		},
+		{
+			name:    "empty model name",
+			mutate:  func(c *Config) { c.Providers[0].Models = map[string]Model{"": {}} },
+			wantErr: []string{"providers[0].models", "empty"},
 		},
 		{
 			name:    "listen without a port",

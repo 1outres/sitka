@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -45,8 +46,42 @@ func (p Provider) validate(field string, idOwner map[string]string) []error {
 		errs = append(errs, fmt.Errorf("%s.api_key is required", field))
 	}
 	errs = append(errs, validateHeaders(field+".headers", p.Headers)...)
+	errs = append(errs, validateEffort(field+".effort", p.Effort)...)
+	errs = append(errs, p.validateModels(field+".models")...)
 
 	return errs
+}
+
+func (p Provider) validateModels(field string) []error {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(p.Models)) {
+		if name == "" {
+			errs = append(errs, fmt.Errorf("%s has an empty model name", field))
+			continue
+		}
+		errs = append(errs, validateEffort(fmt.Sprintf("%s[%q].effort", field, name), p.Models[name].Effort)...)
+	}
+	return errs
+}
+
+func validateEffort(field string, effort Effort) []error {
+	var errs []error
+	for _, level := range slices.Sorted(maps.Keys(effort)) {
+		if !slices.Contains(EffortLevels, level) {
+			errs = append(errs, fmt.Errorf("%s has the unknown effort level %q, which must be one of %s",
+				field, level, strings.Join(EffortLevels, ", ")))
+		}
+		if !isJSONObject(effort[level]) {
+			errs = append(errs, fmt.Errorf("%s.%s must be a mapping of request body fields, got %s",
+				field, level, effort[level]))
+		}
+	}
+	return errs
+}
+
+func isJSONObject(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	return json.Unmarshal(raw, &fields) == nil && fields != nil
 }
 
 func (p Provider) validateID(field string, idOwner map[string]string) error {

@@ -46,6 +46,8 @@ type Provider struct {
 	baseURL      string
 	apiKey       string
 	headers      map[string]string
+	effort       config.Effort
+	models       map[string]config.Model
 	client       *http.Client
 	logger       *slog.Logger
 	pingInterval time.Duration
@@ -72,6 +74,8 @@ func New(cfg config.Provider, logger *slog.Logger) (*Provider, error) {
 		baseURL:      baseURL,
 		apiKey:       cfg.APIKey,
 		headers:      maps.Clone(cfg.Headers),
+		effort:       maps.Clone(cfg.Effort),
+		models:       maps.Clone(cfg.Models),
 		client:       newHTTPClient(),
 		logger:       logger.With("provider", cfg.ID),
 		pingInterval: defaultPingInterval,

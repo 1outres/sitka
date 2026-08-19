@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -35,12 +36,31 @@ type Anthropic struct {
 
 // Provider configures one OpenAI-compatible upstream. ID is the prefix a
 // client puts in front of the upstream model name, as in "openai-gpt-5.2".
+// Effort applies to every model of the provider, and an entry in Models
+// replaces it for that model.
 type Provider struct {
 	ID      string            `json:"id"`
 	BaseURL string            `json:"base_url"`
 	APIKey  string            `json:"api_key"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Effort  Effort            `json:"effort,omitempty"`
+	Models  map[string]Model  `json:"models,omitempty"`
 }
+
+// Model configures one upstream model, keyed by the name the upstream knows.
+type Model struct {
+	Effort Effort `json:"effort,omitempty"`
+}
+
+// Effort maps a Claude Code effort level to the request body fields to send for
+// it. An OpenAI-compatible API spells reasoning effort differently from one
+// upstream to the next, so the fields are written out rather than derived. A
+// level with no entry sends nothing, which leaves the upstream default in
+// place.
+type Effort map[string]json.RawMessage
+
+// EffortLevels are the levels Claude Code sends in output_config.
+var EffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 
 // DefaultPath returns the config path from XDG_CONFIG_HOME, falling back to
 // ~/.config/sitka/config.yaml.
