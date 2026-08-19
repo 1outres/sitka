@@ -19,6 +19,19 @@
           value = f system;
         }) systems);
     in {
+      packages = forEachSystem (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          default = pkgs.buildGo125Module {
+            pname = "sitka";
+            version = "0.1.0";
+            src = self;
+            vendorHash = "sha256-feVc17HT/eYnDhn2KnbgOfCw9NH4D/wl8oTvVEhVWF0=";
+            subPackages = [ "cmd/sitka" ];
+            meta.mainProgram = "sitka";
+          };
+        });
+
       devShells = forEachSystem (system:
         let
           pkgs = import nixpkgs { inherit system; };
