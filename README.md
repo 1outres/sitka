@@ -1,29 +1,25 @@
 # sitka
 
-Claude Code のサブエージェントを、Anthropic 以外のモデルで動かすためのローカルゲートウェイ。
+Claude Codeのサブエージェントを、Anthropic以外のモデルで動かすためのローカルゲートウェイ。
 
-`ANTHROPIC_BASE_URL` を sitka に向けると、Claude Code のリクエストはモデル ID で振り分けられる。
+`ANTHROPIC_BASE_URL`をsitkaに向けると、リクエストはモデルIDで振り分けられる。
 
 ```
 Claude Code ──▶ sitka (127.0.0.1:8787) ──┬── claude-*         ──▶ api.anthropic.com（無改変で転送）
-                                          └── openai-gpt-5.2  ──▶ OpenAI 互換 API（形式変換）
+                                          └── openai-gpt-5.2  ──▶ OpenAI互換API（形式変換）
 ```
 
-`claude-` で始まる ID を含め、設定したプロバイダのプレフィックスに一致しないモデルは
-すべて Anthropic 公式 API へそのまま流れる。ヘッダもボディも 1 バイトも書き換えないので、
-Claude Code が新しいベータ機能を使い始めても sitka を更新する必要はない。
+プロバイダのプレフィックスに一致しないモデルIDは、すべてAnthropic公式APIへそのまま流れる。ヘッダもボディも書き換えない。
 
-sitka は Anthropic の API キーを持たない。転送時はクライアントが送ってきた
-`x-api-key` / `Authorization` をそのまま使うので、claude.ai のサブスクリプションログインの
-ままでも動く。設定ファイルに書くのは外部プロバイダの鍵だけ。
+sitkaはAnthropicのAPIキーを持たない。転送時はクライアントが送ってきた`x-api-key`と`Authorization`をそのまま使うので、claude.aiのサブスクリプションログインのままで動く。設定ファイルに書くのは外部プロバイダの鍵だけ。
 
-## セットアップ
+## 起動
 
 ```bash
 make build            # bin/sitka
 ```
 
-`~/.config/sitka/config.yaml` を用意する。
+`~/.config/sitka/config.yaml`を用意する。
 
 ```yaml
 listen: 127.0.0.1:8787
@@ -37,44 +33,28 @@ providers:
     api_key: sk-...
 ```
 
-`id` は `[a-z0-9]+` のみ。モデル ID を最初の `-` で分割してプロバイダを決めるため、
-`id` に `-` は使えない。`claude` と `anthropic` は予約語。
-
-`base_url` を差し替えれば OpenRouter・Groq・DeepSeek・xAI・Ollama など
-Chat Completions 互換の API はそのまま使える。
-
-```yaml
-providers:
-  - id: openrouter
-    base_url: https://openrouter.ai/api/v1
-    api_key: sk-or-...
-  - id: ollama
-    base_url: http://127.0.0.1:11434/v1
-    api_key: dummy
-```
-
-起動する。
+`id`がモデルIDのプレフィックスになる。使えるのは`[a-z0-9]+`だけで、`claude`と`anthropic`は予約語。`base_url`を差し替えればOpenRouterやGroq、Ollamaなど、Chat Completions互換のAPIはそのまま使える。
 
 ```bash
 sitka serve
 ```
 
-Claude Code を sitka 経由で立ち上げる。
+Claude Codeをsitka経由で立ち上げる。
 
 ```bash
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787 \
+ENABLE_TOOL_SEARCH=true \
+CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING=1 \
 claude
 ```
 
-## サブエージェントで外部モデルを使う
+あとの2つは、`ANTHROPIC_BASE_URL`を見たClaude Codeが自分で切る機能を戻すためのもの。どちらもsitka経由で動く。
 
-使えるモデル ID を確認する。
+3つともシェルのprofileや`settings.json`の`env`には置かない。置くと全セッションに効いてRemote Controlが死ぬ。sitkaを使いたいセッションだけで指定する。
 
-```bash
-sitka models
-```
+`CLAUDE_CODE_ATTRIBUTION_HEADER=0`は設定しない。attributionブロックはsitkaが外部プロバイダ向けの変換時に落とすので指定する必要がなく、クライアント側で切るとauto modeのclassifierがAPIに拒否されうる。`ANTHROPIC_DEFAULT_HAIKU_MODEL`にも外部モデルを割り当てない。この別名は会話タイトル生成などのバックグラウンド処理にも使われるので、意図しないところで外部プロバイダに課金が発生する。
 
-`.claude/agents/reviewer.md` の frontmatter にその ID を書く。
+サブエージェントで外部モデルを使うには、`sitka models`でモデルIDを確認して、frontmatterに書く。
 
 ```markdown
 ---
@@ -86,50 +66,13 @@ model: openai-gpt-5.2
 変更差分をレビューして、バグと設計上の問題を指摘してください。
 ```
 
-`ANTHROPIC_BASE_URL` が設定されている間、Claude Code はモデル ID を検証せずそのまま送るので、
-このサブエージェントのリクエストだけが OpenAI へ流れる。メインの会話は Anthropic のままになる。
+`ANTHROPIC_BASE_URL`が設定されている間、Claude CodeはモデルIDを検証せずそのまま送るので、このサブエージェントのリクエストだけが外部プロバイダへ流れる。メインの会話はAnthropicのままになる。
 
-## `ANTHROPIC_BASE_URL` はグローバルに設定しない
+## できないこと
 
-この変数を設定している間、Claude Code は **Remote Control を無効化する**（v2.1.196 以降）。
-tool search と違って復帰用の変数はなく、変数を外してセッションを開き直すしかない。
-シェルの profile や `settings.json` の `env` に置くと全セッションで効いてしまうので、
-sitka を使いたいセッションだけで指定する。
-
-```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
-```
-
-なお `settings.json` の `env` はシェルの `export` を上書きする。設定が効かないときは
-まずそちらを疑う。
-
-## 既知の制限
-
-- **`/model` ピッカーには自動登録されない。** Claude Code のゲートウェイモデル検出は、
-  ID に `claude` か `anthropic` を含むものしか拾わない仕様のため、`openai-*` は出てこない。
-  メインの会話で使いたい場合は `ANTHROPIC_CUSTOM_MODEL_OPTION=openai-gpt-5.2` を設定する。
-- **`/v1/messages/count_tokens` は非 Anthropic モデルに対して 404 を返す。**
-  OpenAI 互換 API に正確なトークン数を数える手段がなく、推定でごまかすことはしない。
-  Claude Code は推論エンドポイント経由の計測に切り替わる。
-- **attribution ブロックがプロンプトに含まれる。** Claude Code はシステムプロンプトの先頭に
-  クライアント情報のブロックを付ける。Anthropic 公式 API はこれを除去するが、他のプロバイダは
-  プロンプトの一部として受け取る。気になる場合は `CLAUDE_CODE_ATTRIBUTION_HEADER=0` を設定する。
-- **コンテキスト長の仮定がずれる。** Claude Code は知らないモデル ID に対して独自の
-  コンテキスト長を仮定するので、実際と違う場合は `CLAUDE_CODE_MAX_CONTEXT_TOKENS` で宣言する。
-- **`thinking` ブロックは変換時に落とす。** OpenAI 互換 API に対応物がないため。
-- **`ENABLE_TOOL_SEARCH=true` にしない。** `ANTHROPIC_BASE_URL` 配下では MCP の tool search が
-  既定で無効になる。理由は「多くのプロキシが `tool_reference` ブロックを転送しないから」で、
-  sitka の Anthropic 転送は無改変なので本来は有効化できる。ただし有効にすると
-  `tool_reference` ブロックが非 Anthropic モデルにも流れ、対応物がないため 400 になる。
-  MCP ツールを持つサブエージェントを外部モデルで動かすなら、既定の無効のままにする。
-- **`ANTHROPIC_DEFAULT_HAIKU_MODEL` に外部モデルを割り当てない。** この alias は会話タイトル生成
-  などのバックグラウンド処理にも使われるので、意図しない場所で外部プロバイダに課金が発生する。
-
-## 開発
-
-```bash
-make test    # go test ./...
-make lint    # golangci-lint run
-```
-
-Nix flake の devShell に Go とツールが入っている。`direnv allow` するか `nix develop` する。
+- **Remote Controlが使えない。** `ANTHROPIC_BASE_URL`が非Anthropicホストを指している間、Claude Codeがこれを無効化する（v2.1.196以降）。復帰用の変数はなく、変数を外してセッションを開き直すしかない。
+- **`/model`ピッカーに外部モデルが出ない。** ゲートウェイのモデル検出は既定で無効で、有効にしてもIDに`claude`か`anthropic`を含むものしか拾わない。メインの会話で使いたい場合は`ANTHROPIC_CUSTOM_MODEL_OPTION=openai-gpt-5.2`を設定する。
+- **外部モデルのトークン数を数えられない。** `/v1/messages/count_tokens`は404を返す。OpenAI互換APIに正確に数える手段がなく、推定でごまかすことはしない。Claude Codeは推論エンドポイント経由の計測に切り替わる。
+- **外部モデルに`thinking`ブロックを渡せない。** 変換時に落とす。
+- **外部モデルに画像入りの`tool_result`を渡せない。** 400を返す。OpenAIの`tool`ロールはテキストしか運べないため、スクリーンショットを読ませるサブエージェントは外部モデルでは動かない。
+- **外部モデルのコンテキスト長をClaude Codeが知らない。** 知らないモデルIDには独自の値を仮定するので、実際と違う場合は`CLAUDE_CODE_MAX_CONTEXT_TOKENS`で宣言する。
