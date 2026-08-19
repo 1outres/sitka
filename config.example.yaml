@@ -14,20 +14,15 @@ providers:
     base_url: https://api.openai.com/v1
     api_key: sk-...
 
-    # Claude Code sends the effort level in output_config, which an
-    # OpenAI-compatible API has no field for. Write out what to send for each
-    # level. A level with no entry sends nothing, so the upstream keeps its own
-    # default. An entry under models replaces this whole block for that model,
-    # which is how a model without xhigh or max says so.
-    effort:
-      low:    {reasoning_effort: low}
-      medium: {reasoning_effort: medium}
-      high:   {reasoning_effort: high}
+    # How hard this upstream should think. The fields go on every request to
+    # the provider, so each model is pinned rather than following the effort
+    # level the client asked for. An OpenAI-compatible API spells this
+    # differently from one upstream to the next, so write out what to send. An
+    # entry under models replaces this whole field for that model.
+    effort: {reasoning_effort: high}
     models:
-      gpt-5.2:
-        effort:
-          xhigh: {reasoning_effort: high}
-          max:   {reasoning_effort: high}
+      gpt-5.2-mini:
+        effort: {reasoning_effort: max}
 
   # Any Chat Completions compatible API works by changing base_url.
   # - id: openrouter

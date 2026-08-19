@@ -64,19 +64,11 @@ func (p Provider) validateModels(field string) []error {
 	return errs
 }
 
-func validateEffort(field string, effort Effort) []error {
-	var errs []error
-	for _, level := range slices.Sorted(maps.Keys(effort)) {
-		if !slices.Contains(EffortLevels, level) {
-			errs = append(errs, fmt.Errorf("%s has the unknown effort level %q, which must be one of %s",
-				field, level, strings.Join(EffortLevels, ", ")))
-		}
-		if !isJSONObject(effort[level]) {
-			errs = append(errs, fmt.Errorf("%s.%s must be a mapping of request body fields, got %s",
-				field, level, effort[level]))
-		}
+func validateEffort(field string, effort json.RawMessage) []error {
+	if len(effort) == 0 || isJSONObject(effort) {
+		return nil
 	}
-	return errs
+	return []error{fmt.Errorf("%s must be a mapping of request body fields, got %s", field, effort)}
 }
 
 func isJSONObject(raw json.RawMessage) bool {

@@ -21,14 +21,6 @@ type Request struct {
 	TopK          *int        `json:"top_k,omitempty"`
 	StopSequences []string    `json:"stop_sequences,omitempty"`
 	Stream        bool        `json:"stream,omitempty"`
-
-	OutputConfig *OutputConfig `json:"output_config,omitempty"`
-}
-
-// OutputConfig carries the output settings of one request. The gateway reads
-// only the effort level; the rest of the field has no OpenAI equivalent.
-type OutputConfig struct {
-	Effort string `json:"effort,omitempty"`
 }
 
 // Message is one turn of the conversation.

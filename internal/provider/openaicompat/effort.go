@@ -4,25 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-
-	"github.com/1outres/sitka/internal/anthropic"
 )
 
-// effortFields returns the body fields configured for the effort level of one
-// request. An entry under the model replaces the provider default outright, so
-// a model that spells effort differently does not inherit the wrong shape.
-// Nothing configured means nothing to send, and the upstream keeps its own
-// default.
-func (p *Provider) effortFields(upstreamModel string, output *anthropic.OutputConfig) json.RawMessage {
-	if output == nil || output.Effort == "" {
-		return nil
-	}
-
-	effort := p.effort
+// effortFields returns the request body fields configured for one model. An
+// entry under the model replaces the provider setting outright, so a model that
+// spells effort differently does not inherit the wrong shape. Nothing
+// configured means nothing to send, and the upstream keeps its own default.
+//
+// The client's own effort level is not read. Claude Code sets it for the whole
+// session, and the levels of an OpenAI-compatible upstream rarely line up with
+// it, so the configuration pins each model instead.
+func (p *Provider) effortFields(upstreamModel string) json.RawMessage {
 	if model, ok := p.models[upstreamModel]; ok && model.Effort != nil {
-		effort = model.Effort
+		return model.Effort
 	}
-	return effort[output.Effort]
+	return p.effort
 }
 
 // mergeFields writes fields over the top level of payload. The merge is

@@ -36,43 +36,30 @@ func TestConfigValidate(t *testing.T) {
 			mutate: func(c *Config) { c.Providers = nil },
 		},
 		{
-			name: "valid effort overrides",
+			name: "valid effort settings",
 			mutate: func(c *Config) {
-				c.Providers[0].Effort = Effort{"high": json.RawMessage(`{"reasoning_effort":"high"}`)}
+				c.Providers[0].Effort = json.RawMessage(`{"reasoning_effort":"high"}`)
 				c.Providers[0].Models = map[string]Model{
-					"gpt-5.2": {Effort: Effort{"max": json.RawMessage(`{"reasoning_effort":"high"}`)}},
+					"gpt-5.2": {Effort: json.RawMessage(`{"reasoning":{"effort":"high"}}`)},
 				}
 			},
 		},
 		{
-			name: "unknown effort level",
-			mutate: func(c *Config) {
-				c.Providers[0].Effort = Effort{"insane": json.RawMessage(`{"reasoning_effort":"high"}`)}
-			},
-			wantErr: []string{"providers[0].effort", "insane"},
+			name:    "effort that is not a mapping",
+			mutate:  func(c *Config) { c.Providers[0].Effort = json.RawMessage(`"high"`) },
+			wantErr: []string{"providers[0].effort", "mapping"},
 		},
 		{
-			name: "effort level that is not a mapping",
-			mutate: func(c *Config) {
-				c.Providers[0].Effort = Effort{"high": json.RawMessage(`"high"`)}
-			},
-			wantErr: []string{"providers[0].effort.high", "mapping"},
+			name:    "effort set to null",
+			mutate:  func(c *Config) { c.Providers[0].Effort = json.RawMessage(`null`) },
+			wantErr: []string{"providers[0].effort", "mapping"},
 		},
 		{
-			name: "effort level set to null",
+			name: "model effort that is not a mapping",
 			mutate: func(c *Config) {
-				c.Providers[0].Effort = Effort{"high": json.RawMessage(`null`)}
+				c.Providers[0].Models = map[string]Model{"gpt-5.2": {Effort: json.RawMessage(`[1]`)}}
 			},
-			wantErr: []string{"providers[0].effort.high", "mapping"},
-		},
-		{
-			name: "unknown effort level on a model",
-			mutate: func(c *Config) {
-				c.Providers[0].Models = map[string]Model{
-					"gpt-5.2": {Effort: Effort{"ultra": json.RawMessage(`{}`)}},
-				}
-			},
-			wantErr: []string{`providers[0].models["gpt-5.2"].effort`, "ultra"},
+			wantErr: []string{`providers[0].models["gpt-5.2"].effort`, "mapping"},
 		},
 		{
 			name:    "empty model name",

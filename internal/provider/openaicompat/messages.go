@@ -35,7 +35,7 @@ func (p *Provider) Messages(w http.ResponseWriter, r *http.Request, upstreamMode
 		return
 	}
 
-	payload, err = mergeFields(payload, p.effortFields(upstreamModel, req.OutputConfig))
+	payload, err = mergeFields(payload, p.effortFields(upstreamModel))
 	if err != nil {
 		anthropic.WriteError(w, http.StatusInternalServerError, anthropic.ErrAPI,
 			fmt.Sprintf("apply the effort settings of provider %q: %v", p.id, err))

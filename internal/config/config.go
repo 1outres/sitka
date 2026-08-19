@@ -43,24 +43,18 @@ type Provider struct {
 	BaseURL string            `json:"base_url"`
 	APIKey  string            `json:"api_key"`
 	Headers map[string]string `json:"headers,omitempty"`
-	Effort  Effort            `json:"effort,omitempty"`
+	Effort  json.RawMessage   `json:"effort,omitempty"`
 	Models  map[string]Model  `json:"models,omitempty"`
 }
 
 // Model configures one upstream model, keyed by the name the upstream knows.
+// Effort is the request body fields to send on every request to that model,
+// whatever effort level the client asked for. An OpenAI-compatible API spells
+// reasoning effort differently from one upstream to the next, and the levels do
+// not line up either, so the fields are written out rather than derived.
 type Model struct {
-	Effort Effort `json:"effort,omitempty"`
+	Effort json.RawMessage `json:"effort,omitempty"`
 }
-
-// Effort maps a Claude Code effort level to the request body fields to send for
-// it. An OpenAI-compatible API spells reasoning effort differently from one
-// upstream to the next, so the fields are written out rather than derived. A
-// level with no entry sends nothing, which leaves the upstream default in
-// place.
-type Effort map[string]json.RawMessage
-
-// EffortLevels are the levels Claude Code sends in output_config.
-var EffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 
 // DefaultPath returns the config path from XDG_CONFIG_HOME, falling back to
 // ~/.config/sitka/config.yaml.

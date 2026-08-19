@@ -3,6 +3,7 @@
 package openaicompat
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -46,7 +47,7 @@ type Provider struct {
 	baseURL      string
 	apiKey       string
 	headers      map[string]string
-	effort       config.Effort
+	effort       json.RawMessage
 	models       map[string]config.Model
 	client       *http.Client
 	logger       *slog.Logger
@@ -74,7 +75,7 @@ func New(cfg config.Provider, logger *slog.Logger) (*Provider, error) {
 		baseURL:      baseURL,
 		apiKey:       cfg.APIKey,
 		headers:      maps.Clone(cfg.Headers),
-		effort:       maps.Clone(cfg.Effort),
+		effort:       cfg.Effort,
 		models:       maps.Clone(cfg.Models),
 		client:       newHTTPClient(),
 		logger:       logger.With("provider", cfg.ID),
