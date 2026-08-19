@@ -1,0 +1,26 @@
+# Copy this to $XDG_CONFIG_HOME/sitka/config.yaml (or ~/.config/sitka/config.yaml)
+# and fill in your keys.
+
+listen: 127.0.0.1:8787
+
+anthropic:
+  base_url: https://api.anthropic.com
+
+# A provider id becomes the model prefix, so `openai` makes `openai-gpt-5.2`
+# route to this upstream as the model `gpt-5.2`. Ids may only use lower case
+# letters and digits, and `claude` and `anthropic` are reserved.
+providers:
+  - id: openai
+    base_url: https://api.openai.com/v1
+    api_key: sk-...
+
+  # Any Chat Completions compatible API works by changing base_url.
+  # - id: openrouter
+  #   base_url: https://openrouter.ai/api/v1
+  #   api_key: sk-or-...
+  #   headers:
+  #     HTTP-Referer: https://github.com/1outres/sitka
+  #
+  # - id: ollama
+  #   base_url: http://127.0.0.1:11434/v1
+  #   api_key: ollama
