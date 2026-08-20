@@ -85,6 +85,34 @@ model: openai-gpt-5.2
 
 `ANTHROPIC_BASE_URL`が設定されている間、Claude CodeはモデルIDを検証せずそのまま送るので、このサブエージェントのリクエストだけが外部プロバイダへ流れる。メインの会話はAnthropicのままになる。
 
+## ルーティングを見る
+
+別のターミナルで`sitka watch`を走らせると、ゲートウェイが振り分けたリクエストが1行ずつ流れる。
+
+```bash
+sitka watch
+```
+
+```
+12:58:36 200 claude-opus-5 → anthropic            300ms in=12.3k out=567 cache_r=45.0k tool_use session=9f8e7d6c
+12:58:41 200 openai-gpt-5.2 → openai/gpt-5.2        8.2s in=31.0k out=1.4k end_turn agent=1a2b3c4d
+12:58:42 404 openai-gpt-5.2 → openai/gpt-5.2         1ms agent=1a2b3c4d /v1/messages/count_tokens
+```
+
+左から、リクエストが終わった時刻、ステータス、要求されたモデルと実際に叩いた上流、所要時間、トークン数、停止理由、呼び出し元。`agent=`の行はサブエージェント、`session=`の行はメインの会話から来ている。末尾のパスは`/v1/messages`以外に行ったときだけ付く。
+
+トークン数はレスポンスが報告した値をそのまま読んでいる。sitkaは推定しない。同じ記録は`serve`のstderrにもログとして残る。
+
+接続先は設定ファイルの`listen`で、`--address`で変えられる。serveをバックグラウンドに置いたままでも、watchはあとから繋がる。
+
+パイプに流すと色が消える。`--json`を付けると1イベント1行のJSONになるので、jqで絞れる。
+
+```bash
+sitka watch --json | jq 'select(.provider == "openai")'
+```
+
+実体は`GET /_sitka/events`のserver-sent events。流れるのはルーティングの記録だけで、プロンプトもAPIキーも乗らない。
+
 ## できないこと
 
 - **Remote Controlが使えない。** `ANTHROPIC_BASE_URL`が非Anthropicホストを指している間、Claude Codeがこれを無効化する（v2.1.196以降）。復帰用の変数はなく、変数を外してセッションを開き直すしかない。

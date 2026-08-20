@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/1outres/sitka/internal/anthropic"
+	"github.com/1outres/sitka/internal/events"
 	"github.com/1outres/sitka/internal/provider"
 	"github.com/1outres/sitka/internal/router"
 )
@@ -30,13 +31,14 @@ const modelsTimeout = 10 * time.Second
 type Server struct {
 	router   *router.Router
 	fallback provider.Passthrough
+	events   *events.Broker
 	logger   *slog.Logger
 }
 
 // New builds a server. fallback receives every path the gateway does not
-// handle itself, unchanged.
-func New(rt *router.Router, fallback provider.Passthrough, logger *slog.Logger) *Server {
-	return &Server{router: rt, fallback: fallback, logger: logger}
+// handle itself, unchanged. broker receives one event per request.
+func New(rt *router.Router, fallback provider.Passthrough, broker *events.Broker, logger *slog.Logger) *Server {
+	return &Server{router: rt, fallback: fallback, events: broker, logger: logger}
 }
 
 // Handler returns the routed HTTP handler.
@@ -45,8 +47,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/messages", s.handleMessages)
 	mux.HandleFunc("POST /v1/messages/count_tokens", s.handleCountTokens)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
+	mux.HandleFunc("GET "+watchPath, s.handleWatch)
 	mux.Handle("/", s.fallback)
-	return s.withLogging(mux)
+	return s.observe(mux)
 }
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -72,17 +75,18 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, call func(prov
 		return
 	}
 
-	model, err := peekModel(body)
+	peek, err := peekRequest(body)
 	if err != nil {
 		anthropic.WriteError(w, http.StatusBadRequest, anthropic.ErrInvalidRequest, err.Error())
 		return
 	}
 
-	p, upstreamModel := s.router.Route(model)
-	if info := routeFrom(r.Context()); info != nil {
-		info.model = model
-		info.upstreamModel = upstreamModel
-		info.provider = p.Name()
+	p, upstreamModel := s.router.Route(peek.Model)
+	if route := routeFrom(r.Context()); route != nil {
+		route.model = peek.Model
+		route.upstreamModel = upstreamModel
+		route.provider = p.Name()
+		route.stream = peek.Stream
 	}
 
 	call(p, upstreamModel, body)
@@ -137,19 +141,20 @@ func newModelList(models []anthropic.Model) anthropic.ModelList {
 	return list
 }
 
-// modelPeek reads only the field the gateway routes on, so the rest of the body
-// reaches the upstream exactly as Claude Code wrote it.
-type modelPeek struct {
-	Model string `json:"model"`
+// requestPeek reads only the fields the gateway routes on and reports, so the
+// rest of the body reaches the upstream exactly as Claude Code wrote it.
+type requestPeek struct {
+	Model  string `json:"model"`
+	Stream bool   `json:"stream"`
 }
 
-func peekModel(body []byte) (string, error) {
-	var peek modelPeek
+func peekRequest(body []byte) (requestPeek, error) {
+	var peek requestPeek
 	if err := json.Unmarshal(body, &peek); err != nil {
-		return "", fmt.Errorf("request body is not valid JSON: %w", err)
+		return peek, fmt.Errorf("request body is not valid JSON: %w", err)
 	}
 	if peek.Model == "" {
-		return "", errors.New("request body is missing the model field")
+		return peek, errors.New("request body is missing the model field")
 	}
-	return peek.Model, nil
+	return peek, nil
 }

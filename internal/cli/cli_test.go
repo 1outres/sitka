@@ -9,7 +9,7 @@ import (
 )
 
 func TestRootCommandHasEverySubcommand(t *testing.T) {
-	want := []string{"serve", "models", "version"}
+	want := []string{"serve", "models", "version", "watch"}
 
 	got := make(map[string]bool)
 	for _, cmd := range NewRootCommand().Commands() {

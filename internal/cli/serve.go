@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/1outres/sitka/internal/config"
+	"github.com/1outres/sitka/internal/events"
 	"github.com/1outres/sitka/internal/provider"
 	"github.com/1outres/sitka/internal/provider/anthropicpass"
 	"github.com/1outres/sitka/internal/provider/openaicompat"
@@ -54,7 +55,7 @@ func serve(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(routes, fallback, logger).Handler(),
+		Handler:           server.New(routes, fallback, events.NewBroker(), logger).Handler(),
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 

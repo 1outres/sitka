@@ -35,6 +35,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(
 		newServeCommand(opts),
 		newModelsCommand(opts),
+		newWatchCommand(opts),
 		newVersionCommand(),
 	)
 	return cmd

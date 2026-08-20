@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/1outres/sitka/internal/anthropic"
+	"github.com/1outres/sitka/internal/events"
 	"github.com/1outres/sitka/internal/provider"
 	"github.com/1outres/sitka/internal/router"
 )
@@ -74,13 +75,18 @@ func (s *stubPassthrough) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTeapot)
 }
 
-func newTestServer(t *testing.T, fallback *stubPassthrough, providers ...provider.Provider) http.Handler {
+func newTestGateway(t *testing.T, fallback *stubPassthrough, providers ...provider.Provider) *Server {
 	t.Helper()
 	routes, err := router.New(fallback, providers)
 	if err != nil {
 		t.Fatalf("router.New: %v", err)
 	}
-	return New(routes, fallback, slog.New(slog.DiscardHandler)).Handler()
+	return New(routes, fallback, events.NewBroker(), slog.New(slog.DiscardHandler))
+}
+
+func newTestServer(t *testing.T, fallback *stubPassthrough, providers ...provider.Provider) http.Handler {
+	t.Helper()
+	return newTestGateway(t, fallback, providers...).Handler()
 }
 
 func post(t *testing.T, handler http.Handler, path, body string) *httptest.ResponseRecorder {
@@ -365,7 +371,7 @@ func TestLoggingRecordsTheRoutingDecision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("router.New: %v", err)
 	}
-	handler := New(routes, fallback, slog.New(slog.NewJSONHandler(&logged, nil))).Handler()
+	handler := New(routes, fallback, events.NewBroker(), slog.New(slog.NewJSONHandler(&logged, nil))).Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages",
 		strings.NewReader(`{"model":"openai-gpt-5.2","messages":[]}`))
@@ -401,7 +407,7 @@ func TestLoggingOmitsRoutingForUnroutedPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("router.New: %v", err)
 	}
-	handler := New(routes, fallback, slog.New(slog.NewJSONHandler(&logged, nil))).Handler()
+	handler := New(routes, fallback, events.NewBroker(), slog.New(slog.NewJSONHandler(&logged, nil))).Handler()
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodHead, "/api/hello", nil))
 
